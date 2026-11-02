@@ -37,9 +37,9 @@ if not cap.isOpened():
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-# ตัวแปรควบคุมระบบ
+# ตัวแปรควบคุมระบบ (กำหนดให้ current_mode เริ่มต้นที่ FRAME)
 canvas = None
-current_mode = "DRAW"
+current_mode = "FRAME"
 filter_style = 0
 last_clear_time = 0
 last_gesture_switch_time = 0
@@ -81,9 +81,9 @@ def is_pinky_folded(landmarks, w, h):
 
 print("Dual-Mode Hand Tracking System Initialized.")
 print("Controls:")
-print(" - Press 'F': Switch between DRAW and FRAME modes")
-print(" - DRAW Mode: Pinch index and thumb to draw (Dark blue line) | Make a fist to clear canvas")
-print(" - FRAME Mode: Single hand creates circle filter | Two hands create polygon window filter | Fold pinkies to switch filters")
+print(" - Press 'F': Switch between FRAME and DRAW modes")
+print(" - FRAME Mode: Fold both pinkies down to switch filters | Single hand = circle | Two hands = window frame")
+print(" - DRAW Mode: Pinch index and thumb to draw | Make a fist to clear canvas")
 print(" - Press 'Q': Exit program")
 
 while cap.isOpened():
@@ -103,73 +103,7 @@ while cap.isOpened():
     detection_result = detector.detect(mp_image)
     h, w, _ = frame.shape
 
-    if current_mode == "DRAW":
-        current_frame_hands = []
-        if detection_result.hand_landmarks:
-            for hand_lms in detection_result.hand_landmarks:
-                wrist = (hand_lms[0].x * w, hand_lms[0].y * h)
-                index_tip = (int(hand_lms[8].x * w), int(hand_lms[8].y * h))
-                thumb_tip = (int(hand_lms[4].x * w), int(hand_lms[4].y * h))
-                pinch_dist = np.hypot(index_tip[0] - thumb_tip[0], index_tip[1] - thumb_tip[1])
-                
-                if is_fist(hand_lms, w, h):
-                    if time.time() - last_clear_time > 1.0:
-                        canvas = np.zeros_like(frame)
-                        last_clear_time = time.time()
-                        print("Fist detected: Canvas cleared.")
-
-                for lm in hand_lms:
-                    lx, ly = int(lm.x * w), int(lm.y * h)
-                    cv2.circle(frame, (lx, ly), 2, (0, 200, 255), -1)
-
-                current_frame_hands.append({
-                    'wrist': wrist,
-                    'index_tip': index_tip,
-                    'pinching': pinch_dist < 35
-                })
-
-        matched_hands = []
-        for h_curr in current_frame_hands:
-            best_match = None
-            min_dist = float('inf')
-            for prev_id, p_data in prev_hand_dict.items():
-                dist = np.hypot(h_curr['wrist'][0] - p_data['wrist'][0], h_curr['wrist'][1] - p_data['wrist'][1])
-                if dist < 120 and dist < min_dist:
-                    min_dist = dist
-                    best_match = prev_id
-            
-            if best_match is not None:
-                matched_hands.append((best_match, h_curr))
-            else:
-                new_id = next_hand_id
-                next_hand_id += 1
-                matched_hands.append((new_id, h_curr))
-
-        new_hand_dict = {}
-        for hand_id, h_curr in matched_hands:
-            idx_pt = h_curr['index_tip']
-            if h_curr['pinching']:
-                cv2.circle(frame, idx_pt, 5, (255, 0, 0), cv2.FILLED)
-                if hand_id in prev_hand_dict and prev_hand_dict[hand_id]['pinching']:
-                    prev_pt = prev_hand_dict[hand_id]['last_pt']
-                    cv2.line(canvas, prev_pt, idx_pt, (255, 0, 0), 4)
-                new_hand_dict[hand_id] = {
-                    'wrist': h_curr['wrist'],
-                    'pinching': True,
-                    'last_pt': idx_pt
-                }
-            else:
-                cv2.circle(frame, idx_pt, 5, (200, 50, 0), cv2.FILLED)
-                new_hand_dict[hand_id] = {
-                    'wrist': h_curr['wrist'],
-                    'pinching': False,
-                    'last_pt': idx_pt
-                }
-        prev_hand_dict = new_hand_dict
-
-        frame = cv2.addWeighted(frame, 1, canvas, 0.85, 0)
-
-    elif current_mode == "FRAME":
+    if current_mode == "FRAME":
         if detection_result.hand_landmarks:
             num_hands = len(detection_result.hand_landmarks)
             
@@ -315,18 +249,89 @@ while cap.isOpened():
                     cv2.circle(frame, thumb_l, 6, (255, 0, 0), -1)
                     cv2.circle(frame, thumb_r, 6, (255, 0, 0), -1)
 
-    cv2.rectangle(frame, (10, 10), (450, 80), (10, 10, 10), -1)
-    cv2.rectangle(frame, (10, 10), (450, 80), (0, 255, 255), 1)
+    elif current_mode == "DRAW":
+        current_frame_hands = []
+        if detection_result.hand_landmarks:
+            for hand_lms in detection_result.hand_landmarks:
+                wrist = (hand_lms[0].x * w, hand_lms[0].y * h)
+                index_tip = (int(hand_lms[8].x * w), int(hand_lms[8].y * h))
+                thumb_tip = (int(hand_lms[4].x * w), int(hand_lms[4].y * h))
+                pinch_dist = np.hypot(index_tip[0] - thumb_tip[0], index_tip[1] - thumb_tip[1])
+                
+                if is_fist(hand_lms, w, h):
+                    if time.time() - last_clear_time > 1.0:
+                        canvas = np.zeros_like(frame)
+                        last_clear_time = time.time()
+                        print("Fist detected: Canvas cleared.")
+
+                for lm in hand_lms:
+                    lx, ly = int(lm.x * w), int(lm.y * h)
+                    cv2.circle(frame, (lx, ly), 2, (0, 200, 255), -1)
+
+                current_frame_hands.append({
+                    'wrist': wrist,
+                    'index_tip': index_tip,
+                    'pinching': pinch_dist < 35
+                })
+
+        matched_hands = []
+        for h_curr in current_frame_hands:
+            best_match = None
+            min_dist = float('inf')
+            for prev_id, p_data in prev_hand_dict.items():
+                dist = np.hypot(h_curr['wrist'][0] - p_data['wrist'][0], h_curr['wrist'][1] - p_data['wrist'][1])
+                if dist < 120 and dist < min_dist:
+                    min_dist = dist
+                    best_match = prev_id
+            
+            if best_match is not None:
+                matched_hands.append((best_match, h_curr))
+            else:
+                new_id = next_hand_id
+                next_hand_id += 1
+                matched_hands.append((new_id, h_curr))
+
+        new_hand_dict = {}
+        for hand_id, h_curr in matched_hands:
+            idx_pt = h_curr['index_tip']
+            if h_curr['pinching']:
+                cv2.circle(frame, idx_pt, 5, (255, 0, 0), cv2.FILLED)
+                if hand_id in prev_hand_dict and prev_hand_dict[hand_id]['pinching']:
+                    prev_pt = prev_hand_dict[hand_id]['last_pt']
+                    cv2.line(canvas, prev_pt, idx_pt, (255, 0, 0), 4)
+                new_hand_dict[hand_id] = {
+                    'wrist': h_curr['wrist'],
+                    'pinching': True,
+                    'last_pt': idx_pt
+                }
+            else:
+                cv2.circle(frame, idx_pt, 5, (200, 50, 0), cv2.FILLED)
+                new_hand_dict[hand_id] = {
+                    'wrist': h_curr['wrist'],
+                    'pinching': False,
+                    'last_pt': idx_pt
+                }
+        prev_hand_dict = new_hand_dict
+
+        frame = cv2.addWeighted(frame, 1, canvas, 0.85, 0)
+
+    # 🖥️ หน้าจอแสดงผล UI และวิธีเล่น (Help / Instruction Overlay)
+    cv2.rectangle(frame, (10, 10), (520, 110), (10, 10, 10), -1)
+    cv2.rectangle(frame, (10, 10), (520, 110), (0, 255, 255), 1)
     
     cv2.putText(frame, f"MODE [F]: {current_mode}", (20, 35),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
     
-    if current_mode == "DRAW":
-        cv2.putText(frame, "VFX Draw Mode | [Make a Fist] Clear", (20, 60),
+    if current_mode == "FRAME":
+        cv2.putText(frame, "Fold Both Pinkies Down: Switch Filter", (20, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+        cv2.putText(frame, f"Filter Style: [{filter_style}] (0-5) | Press 'F' for DRAW", (20, 85),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, (200, 200, 200), 1)
     else:
-        cv2.putText(frame, f"Filter Style [{filter_style}] (0-5) | Fold Pinkies to Switch", (20, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1)
+        cv2.putText(frame, "Pinch Index & Thumb: Draw | Make Fist: Clear", (20, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+        cv2.putText(frame, "Press 'F' to Switch to FRAME Mode", (20, 85),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (200, 200, 200), 1)
 
     cv2.imshow('Dual-Mode Hand Tracking - KKU AI', frame)
 
@@ -334,7 +339,7 @@ while cap.isOpened():
     if key in [ord('q'), ord('Q')]:
         break
     elif key in [ord('f'), ord('F')]:
-        current_mode = "FRAME" if current_mode == "DRAW" else "DRAW"
+        current_mode = "DRAW" if current_mode == "FRAME" else "FRAME"
         print(f"Mode switched to: {current_mode}")
     elif key in [ord('v'), ord('V')] and current_mode == "FRAME":
         filter_style = (filter_style + 1) % 6
